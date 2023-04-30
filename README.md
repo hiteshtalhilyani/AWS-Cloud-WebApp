@@ -30,3 +30,6 @@ In this project we will run our WebApp in AWS Cloud using SaaS and PaaS
     - Active MQ
     - Route53
     - CloudFront 
+    - Application ELB
+    - Cloudwatch Alarms
+    
