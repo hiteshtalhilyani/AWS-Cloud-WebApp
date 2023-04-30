@@ -52,6 +52,146 @@
 
 
 5. Create ElasticCache 
+    # Create ElasticCache - Memcache on AWS
+        - create parameter group : webapp-memcache-para-grp
+        - Family : memcached1.4  
+        - Select:  Create 
+        - View Parameter, modify if required otherwise keep it default 
+    
+    # Create Subnet Group 
+        - create subnet group : webapp-memcache-subnet-grp
+        - Select Default VPC : 
+        - Select All Subnets, By default all are selected 
+
+    # Create Memcached Cluster 
+        - Get Started (Select : Create Memcached Cluster ) or Go to Memcached Cluster
+        - Name: webapp-elasticcache-svc
+        - Engine Version : 1.4.x
+        - Default Port : 11211
+        - Select Parameter Group:  webapp-memcache-para-grp
+        - Node Type : t2.micro
+        - Nubmer of Nodes:  1
+        - Subnet Group : webapp-memcache-subnet-grp
+        - Next -> Security Group : webapp-backend-sg
+        - Select SNS Topic if created for notifications else keep it default
+        - Tag: name: project , value: webapp
+        - Review All setting : Parameter Group, Security Group , Node Type, Subnet etc -> Create
+
+6. Create Active MQ 
+    # Create Acitve MQ on AWS 
+        - Get Started 
+        - Two Type of Engine : Apache ActiveMQ or RabbitMQ
+        - Select: RabbitMQ 
+        - Select Single Instance for Testing Purpose 
+        - Broker Name: webapp-rmq01
+        - Node Type: t3.micro
+        - Username: rabbit
+        - password : cSrHZsxByg56Op4uXDch
+        - Additional Setting : keep default engine version 
+            Network Access: Private Access
+            Use Default VPC & Subnet
+            Security Group : webapp-backend-sg
+            Encryption : AWS Owned CMK 
+            Preference Maintenance: Default
+            Tag : project - webapp
+        - Verify All details, make note of credentials and Create Broker 
+
+7. Database -Initialization - Create Schema
+    # DB Initialization     
+        - Select RDS, Copy Endpoint - 
+        - Copy Endpoint : webapp-rds-mysql.cf40dl6ihnxs.ap-south-1.rds.amazonaws.com
+        - Launch Temp EC2 Instance as RDS- DB Client 
+        - Name: mysql-client , OS: Ubuntu- 20.4
+        - Create SG : mysql-client-sg , Allow 22 Access
+        - Userdata : 
+                #!/bin/bash
+                sudo apt update
+                sudo apt install mysql-client -y 
+        - login with public IP 
+        - User: ubuntu
+        - mysql -h webapp-rds-mysql.cf40dl6ihnxs.ap-south-1.rds.amazonaws.com -u admin -pcSrHZsxByg56Op4uXDch
+        - It will not allow to login, add rule in backend SG to allow ubuntu-sg on port 3306 
+                Allow RDS access to MYSQL CLIENT
+        -    show databases; --> verify accounts database exist
+             use accounts;
+             exit : ctrl + d
+        - git clone https://github.com/hiteshtalhilyani/AWS-Cloud-WebApp.git
+        - cd AWS-Cloud-WebApp/
+        - git branch -a 
+        - git checkout remotes/origin/AWS-WebApp-Refactoring
+        - cd /home/ubuntu/AWS-Cloud-WebApp/project-code/src/main/resources
+        - Initialize Accounts Schema
+             mysql -h webapp-rds-mysql.cf40dl6ihnxs.ap-south-1.rds.amazonaws.com -u admin -pcSrHZsxByg56Op4uXDch accounts < db_backup.sql
+
+        - verify  the schema
+                use accounts;
+                show tables;     # It will show tables are created 
+
+
+8. Create Beanstalk
+   
+    # Create Elastic BeanStalk Application 
+        - Application Name : webapp-java
+        - Tag : project = webapp
+        - Create Application
+        - Create Environment :
+            - Env Name: webapp-java-env-dev
+            - Platform: tomcat 
+            - Platform Typ : Managed Platform
+            - Application Code : Sample 
+            - Presets : Custom Configuration 
+                - Keypair : select your keypair to access instances
+                - Instance Traffic & Scaling 
+                        RootVolume : GP2 , Size - 10Gb
+                        SG: Webapp-backend-sg 
+                        Capacity: LoadBalanced
+                        Instance Type: t2.micro
+                        Scaling Triggers: NetworkOut - When Traffic is High
+                        LoadBalancer : Application LB
+                        AutoScaling Group : min = 2 , max=3 
+                        IAM: Create and User new service role : aws-elasticbeanstalk-service-role
+                        IAMInstanceProfile : aws-elasticbeanstalk-ec2-role or keep it blank 
+                        VPC: Default
+                - Deployment Configuration 
+                        - Deployment Policy : AllatOnce 
+                                              Rolling  - we will go with Rolling 50% batch size
+                                              Immutable
+                                              Rolling with Additional Batch
+                                              Traffic Splitting (Blue/Green- Deployment)
+                        
+                        - Monitoring: enhanced
+                - Create Beanstalk Env
+                - Add rule in  backend-sg to access Beanstalk-SG 
+                    AllTraffic to Select (aws-elastic-beanstalk-sg)
+                
+    # Modify Application Load balancer Add https listener
+                - Configuration -> Add Listener (https) port 443 
+                - Select ACM certificate
+                - Modify Process - Select /login for health & enable stickyness to connect
+                  user to same EC2 instance 
+
+
+9. Build And Deploy
+    # Build the artifacts on Laptop 
+        -  Update the application properties file 
+        
+    # Notedown All Backend EndPoints 
+        - ActiveMQ:
+            - RMQ Endpoint: b-e2f4e24a-5509-4e37-afdb-60c448f3ad00.mq.ap-south-1.amazonaws.com
+            - RMQ Username: rabbit
+            - RMQ Pwd:      cSrHZsxByg56Op4uXDch
+
+        - RDS:
+            - RDS Endpoint : webapp-rds-mysql.cf40dl6ihnxs.ap-south-1.rds.amazonaws.com
+            - RDS User: admin
+            - RDS pwd:  cSrHZsxByg56Op4uXDch
+
+        - Memcache: 
+            - Memcache Endpoint: webapp-elasticcache-svc.7kkndr.cfg.aps1.cache.amazonaws.com
+    # Build Artifacts
+        - cd project-code  ## verify branch, path of jenkinsfile and pom.xml
+        - mvn install
+        - upload artifacts to elastic beanstalk env and deploy
 
 
 
@@ -63,28 +203,6 @@
 
 
 
-
-
-# Launch EC2 instance with centos for memchache & Rabbitmq 
-1. Launch EC2 instance with centos-7 and provide user data script for memcache
-2. Launch EC2 instance with centos-7 and provice user data script for rabbitmq
-3. login and verify the services after 10min 
-4. Login to memcache server - systemctl status memcached
-5. Check the userdata script -  curl http://169.254.169.254/latest/user-data
-6. Check port - netstat -tunlp |grep -i 11211
-7. login to rabbitmq server -  systemctl status rabbitmq-server
-
-# Add Route53 Enteries
-1. Create Private Hosted Zone
-2. Note down the private IPs and create simple A Records.
-    db01	172.31.34.157
-    mc01	172.31.38.96
-    rmq01	172.31.45.3	 
-
-# Create Tomcat App Server with ubuntu OS 20 version - ubuntu20 
-1. Allow port 22 in app(tomcat) security from your source IP 
-2. login with "ubuntu" user to app using private key
-3. Check User Script -  curl http://169.254.169.254/latest/user-data
 
 
 # Local Build , Upload Artifacts to S3 and Deploy on Tomcat Server 
